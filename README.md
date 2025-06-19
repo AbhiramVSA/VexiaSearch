@@ -1,7 +1,3 @@
-Here is a `README.md` crafted to look like it was written by an experienced developer for a sophisticated repository. It uses the project name **Cortex Engine** as previously discussed.
-
------
-
 # Vexia Search
 
 [](https://www.google.com/search?q=https://github.com/your-username/CortexEngine/actions/workflows/ci.yml)
