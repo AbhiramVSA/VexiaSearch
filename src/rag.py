@@ -303,6 +303,7 @@ origins = [
     "http://localhost:8080",
     "http://localhost:5173", # Often used by Vite
     "http://localhost:3000", # Often used by Create React App
+    "https://vexia-search-ui.vercel.app/",
 ]
 
 app.add_middleware(
@@ -313,7 +314,7 @@ app.add_middleware(
     allow_headers=["*"], # Allows all headers
 )
 
-TEMP_FILE_DIR = "temp_uploads"
+TEMP_FILE_DIR = "/tmp"
 os.makedirs(TEMP_FILE_DIR, exist_ok=True)
 
 @app.post("/deploy", status_code=202)
