@@ -6,7 +6,6 @@ load_dotenv(dotenv_path=".env", override=True)
 
 class Settings(BaseSettings):
     OPENAI_API_KEY: str
-    LOGFIRE_KEY: str
     SUPABASE_URL: str
     SUPABASE_KEY: str
 

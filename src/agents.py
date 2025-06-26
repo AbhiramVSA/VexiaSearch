@@ -1,46 +1,36 @@
 from pydantic_ai import Agent
-from pydantic_ai.models import openai
-from pydantic_ai.providers import openai
+from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.providers.openai import OpenAIProvider
 
 from load_api import Settings
 
 settings = Settings()
 
 class OpenAIAgentInit:
-    
-    # Agent Creation
-    def create_table_agent(sysprompt: str, model_name: str ):
-        table_model = openai(
-            model_name, provider=openai(api_key=settings.OPENAI_API_KEY)
-        )
-        
-        table_agent = Agent(
-            table_model,
-            system_prompt=sysprompt,
-        )
-        
-        return table_agent
+    """
+    Agent Initializer class, now integrated into the main script.
+    Methods have been corrected to be instance methods by adding 'self'.
+    """
+    def __init__(self, api_key: str):
+        self.api_key = api_key
 
-    def create_img_agent(sysprompt: str, model_name: str):
-        image_caption_model = openai(
-            model_name, provider=openai(api_key=settings.OPENAI_API_KEY)
+    def create_table_agent(self, sysprompt: str, model_name: str) -> Agent:
+        """Creates an agent for summarizing tables."""
+        table_model = OpenAIModel(
+            model_name, provider=OpenAIProvider(api_key=self.api_key)
         )
-        
-        image_caption_agent = Agent(
-            image_caption_model,
-            system_prompt=sysprompt
-        )
-        
-        return image_caption_agent
+        return Agent(table_model, system_prompt=sysprompt)
 
-    def create_chat_agent(sysprompt: str, model_name: str):
-        chat_model = openai(
-            model_name, provider=openai(api_key=settings.OPENAI_API_KEY)
+    def create_img_agent(self, sysprompt: str, model_name: str) -> Agent:
+        """Creates an agent for captioning images."""
+        image_caption_model = OpenAIModel(
+            model_name, provider=OpenAIProvider(api_key=self.api_key)
         )
-        
-        chat_agent = Agent(
-            chat_model,
-            system_prompt=sysprompt
+        return Agent(image_caption_model, system_prompt=sysprompt)
+
+    def create_chat_agent(self, sysprompt: str, model_name: str) -> Agent:
+        """Creates a generic chat agent."""
+        chat_model = OpenAIModel(
+            model_name, provider=OpenAIProvider(api_key=self.api_key)
         )
-        
-        return chat_agent
+        return Agent(chat_model, system_prompt=sysprompt)
