@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+pydantic-settings
+langchain-openai
+supabase
+unstructured[pdf]
+pydantic-ai
+aiofiles
+python-dotenv
