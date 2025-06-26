@@ -374,7 +374,7 @@ async def deploy_documents(
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
 
 
-@app.get("/")
+@app.get("/ping")
 def read_root():
     return {"message": "RAG Processing API is running. POST files to /deploy to start."}
 
