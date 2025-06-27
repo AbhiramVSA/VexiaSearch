@@ -7,10 +7,7 @@ from load_api import Settings
 settings = Settings()
 
 class OpenAIAgentInit:
-    """
-    Agent Initializer class, now integrated into the main script.
-    Methods have been corrected to be instance methods by adding 'self'.
-    """
+    
     def __init__(self, api_key: str):
         self.api_key = api_key
 

@@ -35,7 +35,6 @@ settings = Settings()
 agent_create = OpenAIAgentInit(api_key=settings.OPENAI_API_KEY)
 
 
-# --- DATABASE AND EMBEDDINGS SETUP ---
 try:
     supabase: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
     embeddings = OpenAIEmbeddings(openai_api_key=settings.OPENAI_API_KEY)
@@ -46,22 +45,16 @@ except Exception as e:
     embeddings = None
 
 
-# --- CORE PROCESSING LOGIC (from your script) ---
 
 class SupabaseVectorStore:
-    """
-    Manages interactions with the Supabase vector store, now with non-blocking operations.
-    """
+  
     def __init__(self, supabase_client: Client, table_name: str = "documents"):
         self.client = supabase_client
         self.table_name = table_name
         self.embeddings = OpenAIEmbeddings(openai_api_key=settings.OPENAI_API_KEY)
 
     async def add_documents(self, documents: List[Dict[str, Any]]):
-        """
-        Add documents to Supabase vector store asynchronously.
-        The blocking 'execute' call is run in a separate thread.
-        """
+       
         if not self.client:
             print("Supabase client not initialized. Skipping document addition.")
             return
@@ -82,7 +75,7 @@ class SupabaseVectorStore:
             print(f"Error adding documents to Supabase: {e}")
 
     async def create_embedding(self, text: str) -> List[float]:
-        """Create embedding for text using the async method."""
+        
         if not self.embeddings:
             print("Embeddings client not initialized. Skipping embedding creation.")
             return []
@@ -94,9 +87,7 @@ class SupabaseVectorStore:
             return []
     
     async def similarity_search(self, query_embedding: List[float], user_id: str, match_count: int = 5) -> List[Dict[str, Any]]:
-        """
-        Performs a similarity search in Supabase using an RPC call to the 'match_documents' function.
-        """
+       
         if not self.client:
             print("Supabase client not initialized. Skipping similarity search.")
             return []
@@ -121,25 +112,20 @@ class SupabaseVectorStore:
 vector_store = SupabaseVectorStore(supabase)
 
 async def doc_partition_async(file_path: str, **kwargs):
-    """
-    Runs the synchronous `partition_pdf` in a separate thread to make it non-blocking.
-    """
+    
     loop = asyncio.get_running_loop()
     blocking_func = partial(partition_pdf, filename=file_path, **kwargs)
     raw_pdf_elements = await loop.run_in_executor(None, blocking_func)
     return raw_pdf_elements
 
 def data_category(raw_pdf_elements):
-    """
-    Categorizes partitioned elements into texts and tables.
-    -- FIX: Now correctly captures all text-like elements.
-    """
+   
     tables = []
     texts = []
     for el in raw_pdf_elements:
         if isinstance(el, Table):
             tables.append(str(el))
-        elif isinstance(el, Text): # This captures Title, NarrativeText, ListItem, etc.
+        elif isinstance(el, Text): 
             texts.append(str(el))
             
     return {"texts": texts, "tables": tables}
@@ -276,7 +262,7 @@ async def process_and_store_document(file_path: str, output_path: str, user_id: 
         print(f"An error occurred while processing {file_name}: {e}")
 
 
-# --- BACKGROUND TASK RUNNER ---
+
 async def run_processing_in_background(file_paths: List[str], temp_dir: str, user_id: str):
     """
     A wrapper to run the processing for all files and clean up afterward.
@@ -293,7 +279,6 @@ async def run_processing_in_background(file_paths: List[str], temp_dir: str, use
         shutil.rmtree(temp_dir)
 
 
-# --- FASTAPI APPLICATION ---
 app = FastAPI(
     title="RAG Document Processing API",
     description="Endpoint to upload and process PDF documents for RAG system.",
@@ -301,8 +286,8 @@ app = FastAPI(
 
 origins = [
     "http://localhost:8080",
-    "http://localhost:5173", # Often used by Vite
-    "http://localhost:3000", # Often used by Create React App
+    "http://localhost:5173", 
+    "http://localhost:3000", 
     "https://vexia-search-ui.vercel.app/",
 ]
 
@@ -379,12 +364,6 @@ async def deploy_documents(
 def read_root():
     return {"message": "RAG Processing API is running. POST files to /deploy to start."}
 
-# To run this script:
-# 1. Ensure you have a .env file in the same directory with your keys.
-# 2. Make sure you have FastAPI and Uvicorn installed:
-#    pip install "fastapi[all]" python-multipart pydantic-settings
-# 3. Run the server from your terminal:
-#    uvicorn main:app --reload
 
 class ChatRequest(BaseModel):
     message: str
@@ -395,21 +374,21 @@ async def chat_with_documents(request: ChatRequest):
     """
     Answers a user's question based on documents they have previously uploaded.
     """
-    # 1. Create an embedding for the user's message
+    
     print(f"Creating embedding for message: '{request.message}'")
     query_embedding = await vector_store.create_embedding(request.message)
     if not query_embedding:
         raise HTTPException(status_code=500, detail="Failed to create embedding for the message.")
 
-    # 2. Perform similarity search to get context
+    
     print(f"Searching for documents related to the message for user: {request.user_id}")
     matching_docs = await vector_store.similarity_search(
         query_embedding=query_embedding,
         user_id=request.user_id,
-        match_count=10  # Retrieve top 5 matching docs
+        match_count=10  
     )
 
-    # 3. Format the context
+    
     context_pieces = [f"Source: {doc.get('source_file', 'N/A')}\nContent: {doc.get('content', '')}" for doc in matching_docs]
     context = "\n---\n".join(context_pieces)
     
@@ -422,7 +401,7 @@ async def chat_with_documents(request: ChatRequest):
     
     print(f"Found {len(matching_docs)} relevant document chunks.")
 
-    # 4. Prepare the prompt for the agent
+    
     prompt = f"""
     You are an expert assistant. Your task is to answer the user's question based on the context provided below.
     Synthesize the information from the different document chunks to form a coherent, helpful answer.
@@ -444,7 +423,7 @@ async def chat_with_documents(request: ChatRequest):
         )
         response = await chat_agent.run(prompt)
         
-        # Return the response in the format expected by the frontend
+        
         return {"response": response.output, "context": context}
 
     except Exception as e:
