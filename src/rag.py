@@ -11,6 +11,7 @@ from datetime import datetime
 from functools import partial
 from load_api import Settings
 from agents import OpenAIAgentInit
+from supabase import SupabaseVectorStore
 
 # FastAPI imports
 from fastapi import FastAPI, File, UploadFile, Form, BackgroundTasks, HTTPException
@@ -26,90 +27,80 @@ from unstructured.partition.pdf import partition_pdf
 # Supabase and LangChain imports
 from supabase import create_client, Client
 from langchain_openai import OpenAIEmbeddings
+
 # Import Pydantic-Settings
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+# --- Application Initialization ---
+
+# Load application settings (API keys, Supabase URL) from a .env file
+# using Pydantic's settings management. This will raise an error on startup
+# if any required variables are missing.
+
 settings = Settings()
+
+# Create an instance of the custom agents. This class is responsible
+# for initializing and configuring different types of AI agents (e.g., for chat or vision).
+# The OpenAI API key is passed here to be used by all created agents.
 
 agent_create = OpenAIAgentInit(api_key=settings.OPENAI_API_KEY)
 
 
+# --- Database & Embeddings Client Setup ---
+
 try:
+    
+    # Initialize the official Supabase client using the URL and key from settings.
     supabase: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+
+    # Initialize the LangChain embeddings client for OpenAI. This client is specifically
+    # used to convert text queries and document chunks into vector embeddings.
     embeddings = OpenAIEmbeddings(openai_api_key=settings.OPENAI_API_KEY)
+
 except Exception as e:
+    
+    # If initialization fails (e.g., due to incorrect keys or network issues),
+    # log the error and set clients to None to prevent the app from crashing.
     print(f"Error initializing Supabase or OpenAI Embeddings: {e}")
     print("Please ensure your API keys and URLs are set correctly.")
     supabase = None
     embeddings = None
 
-
-
-class SupabaseVectorStore:
-  
-    def __init__(self, supabase_client: Client, table_name: str = "documents"):
-        self.client = supabase_client
-        self.table_name = table_name
-        self.embeddings = OpenAIEmbeddings(openai_api_key=settings.OPENAI_API_KEY)
-
-    async def add_documents(self, documents: List[Dict[str, Any]]):
-       
-        if not self.client:
-            print("Supabase client not initialized. Skipping document addition.")
-            return
-
-        try:
-            batch_size = 20
-            for i in range(0, len(documents), batch_size):
-                batch = documents[i:i + batch_size]
-                result = await asyncio.to_thread(
-                    self.client.table(self.table_name).insert(batch).execute
-                )
-                if result.data:
-                    print(f"Successfully inserted batch {i//batch_size + 1}/{(len(documents) + batch_size - 1)//batch_size}")
-                else:
-                    print(f"Error inserting batch: {getattr(result, 'error', 'Unknown error')}")
-                await asyncio.sleep(0.2)
-        except Exception as e:
-            print(f"Error adding documents to Supabase: {e}")
-
-    async def create_embedding(self, text: str) -> List[float]:
-        
-        if not self.embeddings:
-            print("Embeddings client not initialized. Skipping embedding creation.")
-            return []
-        try:
-            return await self.embeddings.aembed_query(text)
-        except Exception as e:
-            # Added more detailed logging to show the failing text and error
-            print(f"Error creating embedding for text chunk: '{text[:80]}...'. Error: {e}")
-            return []
-    
-    async def similarity_search(self, query_embedding: List[float], user_id: str, match_count: int = 5) -> List[Dict[str, Any]]:
-       
-        if not self.client:
-            print("Supabase client not initialized. Skipping similarity search.")
-            return []
-        try:
-            # Run the blocking RPC call in a separate thread
-            result = await asyncio.to_thread(
-                self.client.rpc(
-                    "match_documents",
-                    {"query_embedding": query_embedding, "match_count": match_count, "p_user_id": user_id},
-                ).execute
-            )
-            if result.data:
-                return result.data
-            else:
-                # This can happen if the function exists but returns no rows
-                print(f"Similarity search returned no data. Error: {getattr(result, 'error', 'No error reported')}")
-                return []
-        except Exception as e:
-            print(f"An exception occurred during similarity search RPC call: {e}")
-            return []
-
+# Instantiate the custom vector store class. This class abstracts away the database
+# logic (like similarity search RPC calls) and requires the initialized Supabase client.
 vector_store = SupabaseVectorStore(supabase)
+
+
+# --- FastAPI Application & Middleware Configuration ---
+
+# Create the main FastAPI application instance. The title and description
+# will be used in the auto-generated API documentation (e.g., at /docs).
+app = FastAPI(
+    title="RAG Document Processing API",
+    description="Endpoint to upload and process PDF documents for RAG system.",
+)
+
+# Define the list of origins (domains) that are allowed to make requests
+# to this API. This is a crucial security feature.
+origins = [
+    "http://localhost:8080",
+    "http://localhost:5173", 
+    "http://localhost:3000", 
+    "https://vexia-search-ui.vercel.app/",
+]
+
+
+# Add the CORS (Cross-Origin Resource Sharing) middleware to the application.
+# This is what allows the frontend web application (running on a different domain)
+# to communicate with this backend API.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"], 
+    allow_headers=["*"], 
+)
 
 async def doc_partition_async(file_path: str, **kwargs):
     
@@ -278,26 +269,6 @@ async def run_processing_in_background(file_paths: List[str], temp_dir: str, use
         print(f"Cleaning up temporary directory: {temp_dir}")
         shutil.rmtree(temp_dir)
 
-
-app = FastAPI(
-    title="RAG Document Processing API",
-    description="Endpoint to upload and process PDF documents for RAG system.",
-)
-
-origins = [
-    "http://localhost:8080",
-    "http://localhost:5173", 
-    "http://localhost:3000", 
-    "https://vexia-search-ui.vercel.app/",
-]
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"], # Allows all methods (GET, POST, etc.)
-    allow_headers=["*"], # Allows all headers
-)
 
 TEMP_FILE_DIR = "/tmp"
 os.makedirs(TEMP_FILE_DIR, exist_ok=True)
