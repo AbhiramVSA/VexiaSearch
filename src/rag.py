@@ -11,7 +11,7 @@ from datetime import datetime
 from functools import partial
 from load_api import Settings
 from agents import OpenAIAgentInit
-from supabase import SupabaseVectorStore
+from supabase_vector import SupabaseVectorStore
 
 # FastAPI imports
 from fastapi import FastAPI, File, UploadFile, Form, BackgroundTasks, HTTPException
@@ -25,7 +25,7 @@ from unstructured.documents.elements import Table, Text
 from unstructured.partition.pdf import partition_pdf
 
 # Supabase and LangChain imports
-from supabase import create_client, Client
+from supabase_vector import Client, create_client
 from langchain_openai import OpenAIEmbeddings
 
 # Import Pydantic-Settings
@@ -34,55 +34,36 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # --- Application Initialization ---
 
-# Load application settings (API keys, Supabase URL) from a .env file
-# using Pydantic's settings management. This will raise an error on startup
-# if any required variables are missing.
-
 settings = Settings()
-
-# Create an instance of the custom agents. This class is responsible
-# for initializing and configuring different types of AI agents (e.g., for chat or vision).
-# The OpenAI API key is passed here to be used by all created agents.
 
 agent_create = OpenAIAgentInit(api_key=settings.OPENAI_API_KEY)
 
 
 # --- Database & Embeddings Client Setup ---
-
 try:
-    
-    # Initialize the official Supabase client using the URL and key from settings.
+
     supabase: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
 
-    # Initialize the LangChain embeddings client for OpenAI. This client is specifically
-    # used to convert text queries and document chunks into vector embeddings.
     embeddings = OpenAIEmbeddings(openai_api_key=settings.OPENAI_API_KEY)
 
 except Exception as e:
     
-    # If initialization fails (e.g., due to incorrect keys or network issues),
-    # log the error and set clients to None to prevent the app from crashing.
     print(f"Error initializing Supabase or OpenAI Embeddings: {e}")
     print("Please ensure your API keys and URLs are set correctly.")
     supabase = None
     embeddings = None
 
-# Instantiate the custom vector store class. This class abstracts away the database
-# logic (like similarity search RPC calls) and requires the initialized Supabase client.
 vector_store = SupabaseVectorStore(supabase)
 
 
 # --- FastAPI Application & Middleware Configuration ---
 
-# Create the main FastAPI application instance. The title and description
-# will be used in the auto-generated API documentation (e.g., at /docs).
+
 app = FastAPI(
     title="RAG Document Processing API",
     description="Endpoint to upload and process PDF documents for RAG system.",
 )
 
-# Define the list of origins (domains) that are allowed to make requests
-# to this API. This is a crucial security feature.
 origins = [
     "http://localhost:8080",
     "http://localhost:5173", 
@@ -90,10 +71,6 @@ origins = [
     "https://vexia-search-ui.vercel.app/",
 ]
 
-
-# Add the CORS (Cross-Origin Resource Sharing) middleware to the application.
-# This is what allows the frontend web application (running on a different domain)
-# to communicate with this backend API.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -101,6 +78,7 @@ app.add_middleware(
     allow_methods=["*"], 
     allow_headers=["*"], 
 )
+
 
 async def doc_partition_async(file_path: str, **kwargs):
     
@@ -331,7 +309,7 @@ async def deploy_documents(
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
 
 
-@app.get("/ping")
+@app.get("/")
 def read_root():
     return {"message": "RAG Processing API is running. POST files to /deploy to start."}
 
