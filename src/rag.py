@@ -30,21 +30,16 @@ from langchain_openai import OpenAIEmbeddings
 # Import Pydantic-Settings
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
-
 settings = Settings()
 agent_create = OpenAIAgentInit(api_key=settings.OPENAI_API_KEY)
 
-
 # Database & Embeddings Client Setup 
 try:
-    
     supabase: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
     embeddings = OpenAIEmbeddings(openai_api_key=settings.OPENAI_API_KEY)
 except Exception as e:
-    
-    print(f"Error initializing Supabase or OpenAI Embeddings: {e}")
-    print("Please ensure your API keys and URLs are set correctly.")
+    print(f"Unable to initialize Supabase or OpenAI embeddings: {e}")
+    print("Please check if the API keys have been set correctly!")
     supabase = None
     embeddings = None
 
@@ -52,8 +47,8 @@ vector_store = SupabaseVectorStore(supabase)
 
 # FastApi and Middleware
 app = FastAPI(
-    title="RAG Document Processing API",
-    description="Endpoint to upload and process PDF documents for RAG system.",
+    title="Vexia-Search API Endpoint",
+    description="Endpoint to upload and process PDF documents for RAG system and process agentic chatting.",
 )
 
 # Need to work on deployment, not setup yet
@@ -72,54 +67,50 @@ app.add_middleware(
     allow_headers=["*"], 
 )
 
-
-
 # Functions to process uploaded files
-
 async def doc_partition_async(file_path: str, **kwargs):
     
     loop = asyncio.get_running_loop()
     blocking_func = partial(partition_pdf, filename=file_path, **kwargs)
-    raw_pdf_elements = await loop.run_in_executor(None, blocking_func)
-    return raw_pdf_elements
+    pdf_elements_raw = await loop.run_in_executor(None, blocking_func)
+    return pdf_elements_raw
 
 # To categorise tables seperately.
-def data_category(raw_pdf_elements):
+def data_category(pdf_elements_raw):
    
     tables = []
     texts = []
-    for el in raw_pdf_elements:
-        if isinstance(el, Table):
-            tables.append(str(el))
-        elif isinstance(el, Text): 
-            texts.append(str(el))
+    for elements in pdf_elements_raw:
+        if isinstance(elements, Table):
+            tables.append(str(elements))
+        elif isinstance(elements, Text): 
+            texts.append(str(elements))
             
     return {"texts": texts, "tables": tables}
-
 
 # Encodes an image file into a base64 string asynchronously.
 async def encode_image_async(image_path: str) -> str:
     
     if not os.path.exists(image_path):
         print(f"Error: Image file not found at {image_path}")
-        return ""
+        return "Missing Image"
     try:
         async with aiofiles.open(image_path, "rb") as image_file:
             image_data = await image_file.read()
             return base64.b64encode(image_data).decode('utf-8')
     except Exception as e:
         print(f"Error encoding image {image_path}: {e}")
-        return ""
+        return "Failed to encode Image"
 
 # Generates captions for a list of image paths using the pydantic-ai agent.
 async def caption_images(image_paths: List[str], image_agent: Agent) -> List[str]:
     
     if not image_agent:
-        print("Image agent not initialized. Skipping captioning.")
+        print("The image agent was not initialized, skipping the captioning step in the pipeline.")
         return [""] * len(image_paths)
 
     print("Captioning images...")
-    async def caption_single_image(img_path):
+    async def caption_single_image(img_path: str) -> str:
         print(f"  - Captioning image: {os.path.basename(img_path)}")
         base64_image = await encode_image_async(img_path)
         if not base64_image:
@@ -140,7 +131,6 @@ async def caption_images(image_paths: List[str], image_agent: Agent) -> List[str
     tasks = [caption_single_image(path) for path in image_paths]
     captions = await asyncio.gather(*tasks)
     return captions
-
 
 # Main async function to process a SINGLE PDF, generate embeddings, and store in Supabase.
 async def process_and_store_document(file_path: str, output_path: str, user_id: str):
@@ -230,7 +220,6 @@ async def process_and_store_document(file_path: str, output_path: str, user_id: 
     except Exception as e:
         print(f"An error occurred while processing {file_name}: {e}")
 
-
 # A wrapper to run the processing for all files and clean up afterward.
 async def run_processing_in_background(file_paths: List[str], temp_dir: str, user_id: str):
 
@@ -245,11 +234,8 @@ async def run_processing_in_background(file_paths: List[str], temp_dir: str, use
         print(f"Cleaning up temporary directory: {temp_dir}")
         shutil.rmtree(temp_dir)
 
-
 TEMP_FILE_DIR = "/tmp"
 os.makedirs(TEMP_FILE_DIR, exist_ok=True)
-
-
 
 # Endpoints
 
@@ -257,14 +243,13 @@ class ChatRequest(BaseModel):
     message: str
     user_id: str
 
-
 @app.get("/ping")
 def ping_root():
     return {"message": "RAG Processing API is running. POST files to /deploy to start."}
 
 # Accepts multiple PDF files, saves them, and triggers a background task 
 # to process them and add their content to the vector store.
-@app.post("/deploy", status_code=202)
+@app.post("/deploy", status_code=202) 
 async def deploy_documents(
     background_tasks: BackgroundTasks,
     user_id: str = Form(...),
@@ -319,18 +304,9 @@ async def deploy_documents(
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
 
 
-
-
-@app.get("/")
-def read_root():
-    return {"message": "RAG Processing API is running. POST files to /deploy to start."}
-
-
+# Answers a user's question based on documents they have previously uploaded.
 @app.post("/chat")
 async def chat_with_documents(request: ChatRequest):
-    """
-    Answers a user's question based on documents they have previously uploaded.
-    """
     
     print(f"Creating embedding for message: '{request.message}'")
     query_embedding = await vector_store.create_embedding(request.message)
@@ -345,7 +321,6 @@ async def chat_with_documents(request: ChatRequest):
         match_count=10  
     )
 
-    
     context_pieces = [f"Source: {doc.get('source_file', 'N/A')}\nContent: {doc.get('content', '')}" for doc in matching_docs]
     context = "\n---\n".join(context_pieces)
     
@@ -358,7 +333,6 @@ async def chat_with_documents(request: ChatRequest):
     
     print(f"Found {len(matching_docs)} relevant document chunks.")
 
-    
     prompt = f"""
     You are an expert assistant. Your task is to answer the user's question based on the context provided below.
     Synthesize the information from the different document chunks to form a coherent, helpful answer.
@@ -379,7 +353,6 @@ async def chat_with_documents(request: ChatRequest):
             model_name="gpt-4o-mini"
         )
         response = await chat_agent.run(prompt)
-        
         
         return {"response": response.output, "context": context}
 
