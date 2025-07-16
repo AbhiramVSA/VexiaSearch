@@ -10,8 +10,6 @@ from typing import Any, Dict, List
 from datetime import datetime
 from functools import partial
 from load_api import Settings
-from agents import OpenAIAgentInit
-from supabase_vector import SupabaseVectorStore
 
 # FastAPI imports
 from fastapi import FastAPI, File, UploadFile, Form, BackgroundTasks, HTTPException
@@ -19,33 +17,30 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 # Pydantic and AI model imports
+from agents import OpenAIAgentInit
 from pydantic import BaseModel
 from pydantic_ai import Agent, ImageUrl
 from unstructured.documents.elements import Table, Text
 from unstructured.partition.pdf import partition_pdf
 
 # Supabase and LangChain imports
-from supabase_vector import Client, create_client
+from supabase_vector import Client, create_client, SupabaseVectorStore
 from langchain_openai import OpenAIEmbeddings
 
 # Import Pydantic-Settings
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-# --- Application Initialization ---
 
 settings = Settings()
-
 agent_create = OpenAIAgentInit(api_key=settings.OPENAI_API_KEY)
 
 
-# --- Database & Embeddings Client Setup ---
+# Database & Embeddings Client Setup 
 try:
-
+    
     supabase: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
-
     embeddings = OpenAIEmbeddings(openai_api_key=settings.OPENAI_API_KEY)
-
 except Exception as e:
     
     print(f"Error initializing Supabase or OpenAI Embeddings: {e}")
@@ -55,15 +50,13 @@ except Exception as e:
 
 vector_store = SupabaseVectorStore(supabase)
 
-
-# --- FastAPI Application & Middleware Configuration ---
-
-
+# FastApi and Middleware
 app = FastAPI(
     title="RAG Document Processing API",
     description="Endpoint to upload and process PDF documents for RAG system.",
 )
 
+# Need to work on deployment, not setup yet
 origins = [
     "http://localhost:8080",
     "http://localhost:5173", 
@@ -80,6 +73,9 @@ app.add_middleware(
 )
 
 
+
+# Functions to process uploaded files
+
 async def doc_partition_async(file_path: str, **kwargs):
     
     loop = asyncio.get_running_loop()
@@ -87,6 +83,7 @@ async def doc_partition_async(file_path: str, **kwargs):
     raw_pdf_elements = await loop.run_in_executor(None, blocking_func)
     return raw_pdf_elements
 
+# To categorise tables seperately.
 def data_category(raw_pdf_elements):
    
     tables = []
@@ -99,8 +96,10 @@ def data_category(raw_pdf_elements):
             
     return {"texts": texts, "tables": tables}
 
+
+# Encodes an image file into a base64 string asynchronously.
 async def encode_image_async(image_path: str) -> str:
-    """Encodes an image file into a base64 string asynchronously."""
+    
     if not os.path.exists(image_path):
         print(f"Error: Image file not found at {image_path}")
         return ""
@@ -112,8 +111,9 @@ async def encode_image_async(image_path: str) -> str:
         print(f"Error encoding image {image_path}: {e}")
         return ""
 
+# Generates captions for a list of image paths using the pydantic-ai agent.
 async def caption_images(image_paths: List[str], image_agent: Agent) -> List[str]:
-    """Generates captions for a list of image paths using the pydantic-ai agent."""
+    
     if not image_agent:
         print("Image agent not initialized. Skipping captioning.")
         return [""] * len(image_paths)
@@ -141,10 +141,10 @@ async def caption_images(image_paths: List[str], image_agent: Agent) -> List[str
     captions = await asyncio.gather(*tasks)
     return captions
 
+
+# Main async function to process a SINGLE PDF, generate embeddings, and store in Supabase.
 async def process_and_store_document(file_path: str, output_path: str, user_id: str):
-    """
-    Main async function to process a SINGLE PDF, generate embeddings, and store in Supabase.
-    """
+    
     file_name = os.path.basename(file_path)
     print(f"Starting processing for: {file_name} (User: {user_id})")
 
@@ -231,11 +231,9 @@ async def process_and_store_document(file_path: str, output_path: str, user_id: 
         print(f"An error occurred while processing {file_name}: {e}")
 
 
-
+# A wrapper to run the processing for all files and clean up afterward.
 async def run_processing_in_background(file_paths: List[str], temp_dir: str, user_id: str):
-    """
-    A wrapper to run the processing for all files and clean up afterward.
-    """
+
     print(f"Background task started for {len(file_paths)} files.")
     try:
         image_output_dir = os.path.join(temp_dir, "images")
@@ -251,16 +249,28 @@ async def run_processing_in_background(file_paths: List[str], temp_dir: str, use
 TEMP_FILE_DIR = "/tmp"
 os.makedirs(TEMP_FILE_DIR, exist_ok=True)
 
+
+
+# Endpoints
+
+class ChatRequest(BaseModel):
+    message: str
+    user_id: str
+
+
+@app.get("/ping")
+def ping_root():
+    return {"message": "RAG Processing API is running. POST files to /deploy to start."}
+
+# Accepts multiple PDF files, saves them, and triggers a background task 
+# to process them and add their content to the vector store.
 @app.post("/deploy", status_code=202)
 async def deploy_documents(
     background_tasks: BackgroundTasks,
     user_id: str = Form(...),
     files: List[UploadFile] = File(..., description="A list of PDF files to process.")
-):
-    """
-    Accepts multiple PDF files, saves them, and triggers a background task
-    to process them and add their content to the vector store.
-    """
+    ):
+
     if not files:
         raise HTTPException(status_code=400, detail="No files were uploaded.")
 
@@ -309,14 +319,12 @@ async def deploy_documents(
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
 
 
+
+
 @app.get("/")
 def read_root():
     return {"message": "RAG Processing API is running. POST files to /deploy to start."}
 
-
-class ChatRequest(BaseModel):
-    message: str
-    user_id: str
 
 @app.post("/chat")
 async def chat_with_documents(request: ChatRequest):
