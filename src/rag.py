@@ -30,6 +30,9 @@ from langchain_openai import OpenAIEmbeddings
 # Import Pydantic-Settings
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+TEMP_FILE_DIR = "/tmp"
+os.makedirs(TEMP_FILE_DIR, exist_ok=True)
+
 settings = Settings()
 agent_create = OpenAIAgentInit(api_key=settings.OPENAI_API_KEY)
 
@@ -233,9 +236,6 @@ async def run_processing_in_background(file_paths: List[str], temp_dir: str, use
     finally:
         print(f"Cleaning up temporary directory: {temp_dir}")
         shutil.rmtree(temp_dir)
-
-TEMP_FILE_DIR = "/tmp"
-os.makedirs(TEMP_FILE_DIR, exist_ok=True)
 
 # Endpoints
 
