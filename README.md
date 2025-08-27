@@ -181,3 +181,39 @@ This application is configured for deployment on Vercel.
 ## License
 
 This project is licensed under the MIT License. See the `LICENSE` file for details.
+
+---
+
+## RAG Stack (Updated)
+
+The backend was refactored to a lightweight, Vercel-friendly RAG pipeline:
+
+Ingestion:
+* PyMuPDF parsing with heading + table heuristics (no unstructured).
+* Token-aware chunking (tiktoken) with overlap.
+* MinHash near-duplicate removal.
+* Batched OpenAI embeddings (text-embedding-3-small).
+
+Storage:
+* Supabase Postgres `documents` table with pgvector + tsvector hybrid indexes.
+
+Retrieval:
+* Query rewriting (original + 2 alts).
+* Parallel vector similarity + BM25 (RPCs `match_documents` + `bm25_match`).
+* RRF fusion, LLM rerank (top 20), context compaction to token budget.
+* Answers cite `[file pX–Y]` or return `UNKNOWN` if insufficient evidence.
+
+Run backend locally:
+```
+pip install -r requirements.txt
+uvicorn src.rag:app --host 0.0.0.0 --port 8000
+```
+
+Apply migration SQL in `migrations/20250828_rag_hybrid.sql` via Supabase SQL editor.
+
+Benchmark:
+```
+python scripts/bench.py
+```
+
+Environment template: see `.env.example`.

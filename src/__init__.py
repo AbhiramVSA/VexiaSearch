@@ -1,0 +1,1 @@
+"""Vexia Search backend package."""
