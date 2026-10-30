@@ -17,7 +17,8 @@ The upload screen currently simulates upload progress in the browser. It does no
 ## Current repository scope
 
 - `front-end/` contains the Vite, React, and Supabase client code.
-- The repository does not contain the documented FastAPI entry point `src/rag.py` or its migration SQL.
+- The repository does not contain the documented FastAPI entry point `src/rag.py` or the backend migration `migrations/20250828_rag_hybrid.sql`.
+- The tracked SQL file at `front-end/supabase/migrations/20250626062746-ac62c16a-ce80-4133-8095-4019c358d0bc.sql` is a separate frontend Supabase migration.
 - Root `vercel.json` still points to `src/rag.py`, which is absent from this checkout.
 - The root `.env.example` lists backend settings. The frontend RAG helper uses fixed local URLs in `front-end/src/services/ragService.ts`.
 - `requirements.txt` and `pyproject.toml` describe different Python dependency sets.
@@ -36,4 +37,16 @@ user_id, content, content_type, source_file, page_range,
 section_title, checksum, embedding, ts
 ```
 
-The design described vector and BM25 retrieval, rank fusion, reranking, and a bounded context. Its implementation, database migration, and tests are not present in the tracked tree.
+The design described vector and BM25 retrieval, rank fusion, reranking, and a bounded context. The FastAPI implementation and its documented backend migration are not present in the tracked tree.
+
+## License
+
+MIT – see `LICENSE`.
+
+This checkout does not contain a standalone `LICENSE` file.
+
+## Acknowledgements
+
+- OpenAI for embeddings & LLM APIs
+- Supabase Team for a clean developer DX
+- PyMuPDF & pdfminer authors for fast and fallback parsing
