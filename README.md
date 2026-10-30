@@ -1,243 +1,56 @@
-# Vexia Search
+<p align="center">
+  <img src="assets/vexia-search-mark.png" alt="Vexia document search and retrieval mark" width="200" />
+</p>
 
-Production‑ready Retrieval Augmented Generation (RAG) stack for multi‑document technical PDF search and conversational answering. Designed for low cold‑start latency and deployment on Vercel serverless.
+<h1 align="center">Vexia Search</h1>
 
----
+<p align="center">Vexia Search is a React client prototype for document upload and RAG chat. The tracked frontend lives in <a href="front-end/"><code class="notranslate">front-end/</code></a>.</p>
 
-## ✨ Key Features
+## Run the frontend
 
-* Lightweight ingestion (PyMuPDF + pdfminer fallback) – no heavy OCR/`unstructured` dependency.
-* Heading/table heuristic aware chunking with token budgeting + overlap.
-* Near‑duplicate suppression using MinHash (with pure‑Python fallback).
-* Hybrid retrieval: pgvector similarity + BM25 (`tsvector`) + RRF fusion.
-* Query rewriting (original + 2 reformulations) → fused retrieval set.
-* LLM semantic rerank of top candidates → context compaction (token cap).
-* Deterministic citation format `[file pX–Y]` + abstains with `UNKNOWN`.
-* Batched OpenAI embeddings (`text-embedding-3-small` by default) with retry/backoff.
-* Idempotent upserts keyed by `(user_id, source_file, checksum)`.
-* Serverless‑friendly: uses `/tmp`, async I/O, minimal dependencies, small wheels.
-* Benchmark + basic unit tests (chunking, RRF, rerank edge case).
-
----
-
-## 🏗 Architecture Overview
-
-Component | Responsibility
---------- | --------------
-FastAPI (`src/rag.py`) | Endpoints `/deploy` (async ingestion trigger), `/chat` (hybrid retrieval + answer)
-Ingestion (`src/ingestion/pdf_parser.py`) | Block extraction → heuristics → chunking → dedupe
-Embedding (`src/ingestion/embed.py`) | Batch OpenAI embedding via direct HTTP (no langchain)
-Storage | Supabase Postgres with `pgvector` + `tsvector` generated column
-Retrieval | RPCs: `match_documents` (vector), `bm25_match` (BM25) + app‑side RRF fusion
-Rerank | Single LLM call ordering top ~20 chunks
-Answering | Context compaction → grounded answer with citations or `UNKNOWN`
-
-Token budgeting ensures context <= `MAX_TOKENS_CONTEXT` (default 8000).
-
----
-
-## 🗃 Data Model (documents table)
-
-```
-user_id text
-content text
-content_type text               -- text | table_heuristic
-source_file text
-page_range int4range
-section_title text
-checksum text
-embedding vector(1536)
-ts tsvector GENERATED ALWAYS AS (to_tsvector('english', content)) STORED
+```bash
+cd front-end
+npm ci
+npm run dev
 ```
 
-Indexes / constraints (see migration):
-* IVFFLAT on embedding
-* GIN on ts
-* UNIQUE (user_id, source_file, checksum)
+The Vite client runs at the local URL printed by the command. Its RAG helper uses `http://127.0.0.1:8000/deploy` and `/chat` by default. This checkout does not include the API service that those routes require.
 
-RPCs:
-* `match_documents(query_embedding, match_count, p_user_id, similarity_threshold)`
-* `bm25_match(p_query, p_user_id, p_limit)`
+The upload screen currently simulates upload progress in the browser. It does not confirm that a PDF reached a RAG backend.
 
----
+## Current repository scope
 
-## 📦 Dependencies (runtime highlights)
+- `front-end/` contains the Vite, React, and Supabase client code.
+- The repository does not contain the documented FastAPI entry point `src/rag.py` or the backend migration `migrations/20250828_rag_hybrid.sql`.
+- The tracked SQL file at `front-end/supabase/migrations/20250626062746-ac62c16a-ce80-4133-8095-4019c358d0bc.sql` is a separate frontend Supabase migration.
+- Root `vercel.json` still points to `src/rag.py`, which is absent from this checkout.
+- The root `.env.example` lists backend settings. The frontend RAG helper uses fixed local URLs in `front-end/src/services/ragService.ts`.
+- `requirements.txt` and `pyproject.toml` describe different Python dependency sets.
+- No root `LICENSE` file is present.
 
-Category | Libs
--------- | ----
-Framework | fastapi, uvicorn
-Async I/O / HTTP | aiofiles, httpx
-ML / RAG | tiktoken, pymupdf, pdfminer.six, datasketch (optional)
-Embeddings | OpenAI REST API (direct)
-DB | supabase (Python client), pgvector extension
-Resilience | tenacity
-Config | pydantic-settings, python-dotenv
+## Backend design notes
 
-Removed heavy libs: `unstructured`, `langchain-openai`.
+The earlier README described a FastAPI service with PDF ingestion, Supabase Postgres, `pgvector`, full-text search, reciprocal-rank fusion, and LLM reranking. The notes below record that intended design. They do not describe code included in this checkout.
 
----
+The documented API used `POST /deploy` to accept a `user_id` and one or more PDF files. It used `POST /chat` with a message, user ID, and result count. The described answer format used citations such as `[file pX–Y]` or returned `UNKNOWN` when it found insufficient evidence.
 
-## 🚀 Getting Started
+The documented `documents` table included these fields:
 
-### 1. Clone & Environment
-```
-git clone https://github.com/AbhiramVSA/VexiaSearch.git
-cd VexiaSearch
-python -m venv .venv
-./.venv/Scripts/activate  # (Windows) or source .venv/bin/activate
-pip install -r requirements.txt
+```text
+user_id, content, content_type, source_file, page_range,
+section_title, checksum, embedding, ts
 ```
 
-### 2. Configure `.env`
-See `.env.example` – do NOT quote values.
-```
-OPENAI_API_KEY=sk-...
-SUPABASE_URL=https://<project>.supabase.co
-SUPABASE_KEY=<anon-or-service-role>
-EMBED_MODEL=text-embedding-3-small
-MAX_TOKENS_CONTEXT=8000
-```
+The design described vector and BM25 retrieval, rank fusion, reranking, and a bounded context. The FastAPI implementation and its documented backend migration are not present in the tracked tree.
 
-### 3. Apply Migration
-Open Supabase SQL Editor → run `migrations/20250828_rag_hybrid.sql`.
+## License
 
-### 4. Run API
-```
-uvicorn src.rag:app --host 0.0.0.0 --port 8000
-```
-Docs available at `/docs`.
-
----
-
-## 📥 Ingestion (`POST /deploy`)
-Multipart form fields:
-* `user_id` (text)
-* `files` (one or more PDFs)
-
-Processing (background): extract → chunk (900 token target / 120 overlap) → dedupe → embed (batched) → upsert.
-
-Response (202 Accepted) returns a session id + counts once background finishes (logs show detail).
-
----
-
-## 💬 Chat (`POST /chat`)
-Request JSON:
-```
-{ "message": "Your question", "user_id": "u123", "k": 6 }
-```
-Pipeline: rewrite queries → parallel vector + BM25 → RRF fuse → rerank → compact → answer.
-Response JSON fields: `answer`, `citations`, `used_chunks`, `elapsed_ms`.
-If insufficient evidence → `answer: "UNKNOWN"`.
-
----
-
-## 🔍 Retrieval Details
-* RRF (k=60) stabilizes rank fusion.
-* Fusion uses IDs from vector & BM25 lists across rewrites.
-* Rerank prompt orders top ~20; fallback returns initial order if LLM fails.
-* Context compaction dedupes by hash & token budget.
-
----
-
-## 🧪 Testing
-```
-pytest -q
-```
-Tests cover:
-* Chunking + deduping basics.
-* RRF combiner behavior.
-* Rerank empty input edge case.
-
-Note: Network LLM calls are minimal; extend with mocks for CI hardening if desired.
-
----
-
-## 📊 Benchmark
-```
-python scripts/bench.py
-```
-Uploads sample PDFs (place under `./pdfs`) then executes a few queries, printing latency.
-
-Target (guideline on modest hardware):
-* Ingest 100 pages < 30s (excluding OpenAI network variance)
-* Retrieval + rerank p50 < 800ms (generation excluded)
-
----
-
-## 🛡 Security & Secrets
-* Never commit real API keys – rotate immediately if exposed.
-* Use service role key only in secure server contexts (not browser).
-* All environment variables loaded via `pydantic-settings` + `.env`.
-
----
-
-## 🔄 Future Roadmap
-Item | Status
----- | ------
-Result caching (query hash) | Planned
-SSE streaming responses | Planned
-Adaptive weighting (learned fusion) | Planned
-Metrics / tracing middleware | Planned
-Answer quality eval harness | Planned
-
----
-
-## 🤝 Contributing
-1. Fork & branch (`feature/<name>`)
-2. Add/adjust tests for changes
-3. Run lint/tests locally
-4. Submit PR with concise description + perf notes
-
-Issue templates: please include reproduction steps & expected vs actual retrieval output.
-
----
-
-## 📄 License
 MIT – see `LICENSE`.
 
----
+This checkout does not contain a standalone `LICENSE` file.
 
-## 🙌 Acknowledgements
-* OpenAI for embeddings & LLM APIs
-* Supabase Team for a clean developer DX
-* PyMuPDF & pdfminer authors for fast and fallback parsing
+## Acknowledgements
 
----
-
-For questions or improvements, open an issue or start a discussion.
-
----
-
-## RAG Stack (Updated)
-
-The backend was refactored to a lightweight, Vercel-friendly RAG pipeline:
-
-Ingestion:
-* PyMuPDF parsing with heading + table heuristics (no unstructured).
-* Token-aware chunking (tiktoken) with overlap.
-* MinHash near-duplicate removal.
-* Batched OpenAI embeddings (text-embedding-3-small).
-
-Storage:
-* Supabase Postgres `documents` table with pgvector + tsvector hybrid indexes.
-
-Retrieval:
-* Query rewriting (original + 2 alts).
-* Parallel vector similarity + BM25 (RPCs `match_documents` + `bm25_match`).
-* RRF fusion, LLM rerank (top 20), context compaction to token budget.
-* Answers cite `[file pX–Y]` or return `UNKNOWN` if insufficient evidence.
-
-Run backend locally:
-```
-pip install -r requirements.txt
-uvicorn src.rag:app --host 0.0.0.0 --port 8000
-```
-
-Apply migration SQL in `migrations/20250828_rag_hybrid.sql` via Supabase SQL editor.
-
-Benchmark:
-```
-python scripts/bench.py
-```
-
-Environment template: see `.env.example`.
+- OpenAI for embeddings & LLM APIs
+- Supabase Team for a clean developer DX
+- PyMuPDF & pdfminer authors for fast and fallback parsing
