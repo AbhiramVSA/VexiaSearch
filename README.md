@@ -1,6 +1,10 @@
-# Vexia Search
+<p align="center">
+  <img src="assets/vexia-search-mark.png" alt="Vexia document search and retrieval mark" width="200" />
+</p>
 
-Vexia Search is a React client prototype for document upload and RAG chat. The tracked frontend lives in [`front-end/`](front-end/).
+<h1 align="center">Vexia Search</h1>
+
+<p align="center">Vexia Search is a React client prototype for document upload and RAG chat. The tracked frontend lives in <a href="front-end/"><code class="notranslate">front-end/</code></a>.</p>
 
 ## Run the frontend
 
